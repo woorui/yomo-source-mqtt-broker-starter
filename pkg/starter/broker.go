@@ -91,7 +91,7 @@ func (b Broker) connSub(conf *BrokerConf, messageSubHandler mqtt.MessageHandler)
 		SetUsername(conf.Username).
 		SetPassword(conf.Password)
 	log.Println("Broker Addresses: ", options.Servers)
-	options.SetClientID(conf.ClientId())
+	options.SetClientID(conf.ClientID())
 	options.SetConnectTimeout(time.Duration(conf.ConnectTimeout) * time.Second)
 	options.SetAutoReconnect(true)
 	options.SetKeepAlive(time.Duration(20) * time.Second)

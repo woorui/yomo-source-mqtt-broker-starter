@@ -15,7 +15,7 @@ type BrokerConf struct {
 	MultipleTopicQoS byte
 }
 
-func (c BrokerConf) ClientId() string {
+func (c BrokerConf) ClientID() string {
 	return fmt.Sprintf("yomo-source-sub-%d", time.Now().Unix())
 }
 
