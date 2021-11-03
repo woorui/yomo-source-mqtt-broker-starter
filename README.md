@@ -1,115 +1,84 @@
 # yomo-source-mqtt-broker-starter
-Receive MQTT messages and convert them to the YoMo protocol for transmission to Serverless Service.
+
+Receive MQTT messages and convert them to the YoMo protocol for transmission to YoMo Streaming Function.
 
 ## 🚀 Getting Started
 
 ### Example (noise)
 
-This example shows how to use the component reference method to make it easier to receive MQTT messages using starter and convert them to the YoMo protocol for transmission to the Zipper service.
+This example shows how to use the component reference method to make it easier to receive MQTT messages using starter and convert them to the YoMo protocol for transmission to the YoMo-Zipper.
 
-#### 1. Init Project
+#### 1. Install YoMo CLI
 
 ```bash
-go mod init source
-go get github.com/yomorun/yomo-source-mqtt-broker-starter
+$ go install github.com/yomorun/cli/yomo@latest
+
+$ yomo version
+YoMo CLI version: v0.1.3
 ```
 
-#### 2. create app.go 
+See [YoMo CLI](https://github.com/yomorun/cli#installing) for details.
+
+#### 2. Start YoMo-Zipper
+
+```bash
+$ yomo serve -v -c example/zipper.yaml
+```
+
+#### 3. Run an example YoMo-Source to receive the MQTT messages and send data to YoMo-Zipper
+
+```bash
+$ go run ./cmd/noise/main.go
+```
+
+Example code:
 
 ```go
 package main
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 
-	"github.com/yomorun/y3-codec-golang"
-
+	"github.com/yomorun/yomo"
+	"github.com/yomorun/yomo-source-mqtt-broker-starter/pkg/env"
 	"github.com/yomorun/yomo-source-mqtt-broker-starter/pkg/starter"
-	"github.com/yomorun/yomo/pkg/quic"
+	"github.com/yomorun/yomo-source-mqtt-broker-starter/pkg/utils"
+)
+
+var (
+	zipperAddr = env.GetString("YOMO_SOURCE_MQTT_ZIPPER_ADDR", "localhost:9999")
+	brokerAddr = env.GetString("YOMO_SOURCE_MQTT_BROKER_ADDR", "0.0.0.0:1883")
+	source     yomo.Source
 )
 
 type NoiseData struct {
-	Noise float32 `y3:"0x11"` // Noise value
-	Time  int64   `y3:"0x12"` // Timestamp (ms)
-	From  string  `y3:"0x13"` // Source IP
+	Noise float32 `json:"noise"` // Noise value
+	Time  int64   `json:"time"`  // Timestamp (ms)
+	From  string  `json:"from"`  // Source IP
 }
 
 func main() {
-	client, err := quic.NewClient("localhost:9999")
+	// connect to YoMo-Zipper.
+	source = yomo.NewSource("yomo-source", yomo.WithZipperAddr(zipperAddr))
+	err := source.Connect()
 	if err != nil {
-		panic(fmt.Errorf("NewClient error:%s", err.Error()))
+		log.Printf("[source] ❌ Connect to YoMo-Zipper %s failure with err: %v", zipperAddr, err)
+		return
 	}
 
-	stream, err := client.CreateStream(context.Background())
-	if err != nil {
-		panic(fmt.Errorf("CreateStream error:%s", err.Error()))
-	}
+	defer source.Close()
 
-	starter.NewBrokerSimply("localhost:1883", "NOISE").
-		Run(func(topic string, payload []byte) {
-			log.Printf("topic=%v, payload=%v\n", topic, string(payload))
+	// set the data tag.
+	source.SetDataTag(0x33)
 
-			// get data from MQTT
-			var raw map[string]int32
-			err := json.Unmarshal(payload, &raw)
-			if err != nil {
-				log.Printf("Unmarshal payload error:%v", err)
-			}
-
-			// generate Y3-Codec format
-			noise := float32(raw["noise"])
-			data := NoiseData{Noise: noise, Time: 1611213247509, From: "192.168.1.1"}
-			sendingBuf, _ := y3.NewCodec(0x10).Marshal(data)
-			log.Printf("sendingBuf=%#x\n", sendingBuf)
-
-			_, err = stream.Write(sendingBuf)
-		})
-}
-```
-
-#### 3. run 
-
-```bash
-go run app.go
-```
-
-**Note**: This example already has a built-in MQTT Broker service (e.g., localhost:1883), so you don't need to build it separately.
-
-### Example (using cli: yomo-mqtt)
-
-Running the application through the CLI
-
-#### 1. build cli 
-
-```bash
-make build_cli
-# create cli file: bin/yomo-mqtt
-```
-
-#### 2. create app.go
-
-```go
-package main
-
-import (
-	"encoding/json"
-	"io"
-	"log"
-
-	"github.com/yomorun/y3-codec-golang"
-)
-
-type NoiseData struct {
-	Noise float32 `y3:"0x11"` // Noise value
-	Time  int64   `y3:"0x12"` // Timestamp (ms)
-	From  string  `y3:"0x13"` // Source IP
+	// start a new MQTT Broker.
+	starter.NewBrokerSimply(brokerAddr, "NOISE").
+		Run(handler)
 }
 
-func Handler(topic string, payload []byte, writer io.Writer) {
-	log.Printf("topic=%v, payload=%v\n", topic, string(payload))
+func handler(topic string, payload []byte) {
+	log.Printf("receive: topic=%v, payload=%v\n", topic, string(payload))
 
 	// get data from MQTT
 	var raw map[string]int32
@@ -118,27 +87,25 @@ func Handler(topic string, payload []byte, writer io.Writer) {
 		log.Printf("Unmarshal payload error:%v", err)
 	}
 
-	// generate Y3-Codec format
 	noise := float32(raw["noise"])
-	data := NoiseData{Noise: noise, Time: 1611213247509, From: "192.168.1.1"}
-	sendingBuf, _ := y3.NewCodec(0x10).Marshal(data)
-	log.Printf("sendingBuf=%#x\n", sendingBuf)
+	data := NoiseData{Noise: noise, Time: utils.Now(), From: utils.IpAddr()}
+	sendingBuf, _ := json.Marshal(data)
 
-	_, err = writer.Write(sendingBuf)
+	// send data to YoMo-Zipper.
+	_, err = source.Write(sendingBuf)
+	if err != nil {
+		log.Printf("source.Write error: %v, sendingBuf=%#x\n", err, sendingBuf)
+	}
+
+	log.Printf("write: sendingBuf=%v\n", utils.FormatBytes(sendingBuf))
 }
+
 ```
 
-#### 3. run
+#### 4. Emit mocking data to MQTT Broker
 
 ```bash
-go mod init test && go get
-./yomo-mqtt run -f app.go -p 1883 -z localhost:9999 -t NOISE
+$ go run ./cmd/emitter/main.go
 ```
 
-- -f Source function file (default is app.go)
-- -p Port is the port number of MQTT host for Source function (default is 6262)
-- -z Endpoint of ZipperAddr Server (default is localhost:4242)
-- -t Topic of MQTT (default is NOISE)
-
 **Note**: This example already has a built-in MQTT Broker service (e.g., localhost:1883), so you don't need to build it separately.
-
