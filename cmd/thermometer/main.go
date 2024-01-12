@@ -23,7 +23,7 @@ type ThermometerData struct {
 
 func main() {
 	// connect to YoMo-Zipper.
-	source = yomo.NewSource("yomo-source", yomo.WithZipperAddr(zipperAddr))
+	source = yomo.NewSource("yomo-source", zipperAddr)
 	err := source.Connect()
 	if err != nil {
 		log.Printf("[source] ❌ Connect to YoMo-Zipper %s failure with err: %v", zipperAddr, err)
@@ -31,9 +31,6 @@ func main() {
 	}
 
 	defer source.Close()
-
-	// set the data tag.
-	source.SetDataTag(0x34)
 
 	// start a new MQTT Broker.
 	starter.NewBrokerSimply(brokerAddr, "thermometer").
@@ -53,7 +50,7 @@ func handler(topic string, payload []byte) {
 	sendingBuf, _ := json.Marshal(data)
 
 	// send data to YoMo-Zipper.
-	_, err = source.Write(sendingBuf)
+	err = source.Write(0x34, sendingBuf)
 	if err != nil {
 		log.Printf("stream.Write error: %v, sendingBuf=%#x\n", err, sendingBuf)
 	}

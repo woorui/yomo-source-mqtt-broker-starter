@@ -11,18 +11,18 @@ This example shows how to use the component reference method to make it easier t
 #### 1. Install YoMo CLI
 
 ```bash
-$ go install github.com/yomorun/cli/yomo@latest
+$ curl -fsSL https://get.yomo.run | sh
 
 $ yomo version
-YoMo CLI version: v0.1.3
+YoMo CLI version: v0.1.17.2
 ```
 
-See [YoMo CLI](https://github.com/yomorun/cli#installing) for details.
+See [YoMo CLI](https://github.com/yomorun/yomo?tab=readme-ov-file#step-1-install-cli) for details.
 
 #### 2. Start YoMo-Zipper
 
 ```bash
-$ yomo serve -v -c example/zipper.yaml
+$ yomo serve -c example/zipper.yaml
 ```
 
 #### 3. Run an example YoMo-Source to receive the MQTT messages and send data to YoMo-Zipper
@@ -60,7 +60,7 @@ type NoiseData struct {
 
 func main() {
 	// connect to YoMo-Zipper.
-	source = yomo.NewSource("yomo-source", yomo.WithZipperAddr(zipperAddr))
+	source = yomo.NewSource("yomo-source", zipperAddr)
 	err := source.Connect()
 	if err != nil {
 		log.Printf("[source] ❌ Connect to YoMo-Zipper %s failure with err: %v", zipperAddr, err)
@@ -68,9 +68,6 @@ func main() {
 	}
 
 	defer source.Close()
-
-	// set the data tag.
-	source.SetDataTag(0x33)
 
 	// start a new MQTT Broker.
 	starter.NewBrokerSimply(brokerAddr, "NOISE").
@@ -92,14 +89,13 @@ func handler(topic string, payload []byte) {
 	sendingBuf, _ := json.Marshal(data)
 
 	// send data to YoMo-Zipper.
-	_, err = source.Write(sendingBuf)
+	err = source.Write(0x33, sendingBuf)
 	if err != nil {
 		log.Printf("source.Write error: %v, sendingBuf=%#x\n", err, sendingBuf)
 	}
 
 	log.Printf("write: sendingBuf=%v\n", utils.FormatBytes(sendingBuf))
 }
-
 ```
 
 #### 4. Emit mocking data to MQTT Broker
